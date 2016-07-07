@@ -33,8 +33,8 @@ type MessageInput struct {
 	Candidate string `json:"candidate,omitempty"`
 }
 
-// Define Offer sent back from the server
-type OfferResponse struct {
+// Define Login request sent back from the server
+type LoginResponse struct {
 	Type    string `json:"type"`
 	Success bool   `json:"success"`
 }
@@ -52,10 +52,10 @@ func onLogin(data MessageInput, messageType int, conn *websocket.Conn) {
 	var out []byte
 
 	if _, isRegistered := USERS[data.Name]; isRegistered {
-		out, err = json.Marshal(OfferResponse{Type: "login", Success: false})
+		out, err = json.Marshal(LoginResponse{Type: "login", Success: false})
 	} else {
 		USERS[data.Name] = User{Name: data.Name, Conn: conn}
-		out, err = json.Marshal(OfferResponse{Type: "login", Success: true})
+		out, err = json.Marshal(LoginResponse{Type: "login", Success: true})
 	}
 	if err != nil {
 		fmt.Println(err)
