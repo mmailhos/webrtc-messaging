@@ -28,7 +28,7 @@ type User struct {
 type MessageInput struct {
 	Type      string `json:"type,omitempty"`
 	Name      string `json:"name,omitempty"`
-	Offer     string `json:"offer,omitempty"`
+	Offer     *Offer `json:"offer,omitempty"`
 	Answer    string `json:"answer,omitempty"`
 	Candidate string `json:"candidate,omitempty"`
 }
@@ -39,6 +39,11 @@ type LoginResponse struct {
 	Success bool   `json:"success"`
 }
 
+type Offer struct {
+	Type string `json:"type"`
+	Sdp  string `json:"sdp"`
+}
+
 //Ugrade policty from http request to websocket, to be defined
 func checkOrigin(r *http.Request) bool {
 	//For example: Check in a blacklist if the address is present
@@ -46,8 +51,30 @@ func checkOrigin(r *http.Request) bool {
 	return true
 }
 
-func onLogin(data MessageInput, messageType int, conn *websocket.Conn) {
-	fmt.Println("User logged in ")
+func onOffer(data MessageInput, messageType int, conn *websocket.Conn) error {
+	fmt.Println("Offer received")
+	var err error
+	var out []byte
+
+	if peer, isRegistered := USERS[data.Name]; isRegistered {
+		out, err = json.Marshal(data.Offer)
+		if err != nil {
+			fmt.Println("Error: ", err)
+			return err
+		}
+		if err = peer.Conn.WriteMessage(messageType, out); err != nil {
+			fmt.Println(err)
+			return err
+		}
+	} else {
+		fmt.Println("Can not send offer to an unregistered peer")
+		return err
+	}
+	return nil
+}
+
+func onLogin(data MessageInput, messageType int, conn *websocket.Conn) error {
+	fmt.Println("User logged in")
 	var err error
 	var out []byte
 
@@ -59,9 +86,13 @@ func onLogin(data MessageInput, messageType int, conn *websocket.Conn) {
 	}
 	if err != nil {
 		fmt.Println(err)
-		return
+		return err
 	}
-	conn.WriteMessage(messageType, out)
+	if err = conn.WriteMessage(messageType, out); err != nil {
+		fmt.Println(err)
+		return err
+	}
+	return nil
 }
 
 func connHandler(conn *websocket.Conn) {
@@ -85,7 +116,7 @@ func connHandler(conn *websocket.Conn) {
 	case "login":
 		onLogin(message, messageType, conn)
 	case "offer":
-		fmt.Println("offer received")
+		onOffer(message, messageType, conn)
 	case "answer":
 		fmt.Println("answer received")
 	case "candidate":
