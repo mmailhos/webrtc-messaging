@@ -12,7 +12,6 @@ var name = "";
    
 //Messages received from the Signaling Server
 connection.onmessage = function (message) { 
-    console.log("Received message from signaling server:", message.data); 
     var data = JSON.parse(message.data); 
     
     switch(data.type) { 
@@ -83,7 +82,6 @@ connectToOtherUsernameBtn.addEventListener("click", function () {
   
 //Sending message to remote peer
 sendMsgBtn.addEventListener("click", function (event) { 
-	console.log("Sending message to remote peer.");
 	var val = msgInput.value; 
 	dataChannel.send(val);
     writetochat(val, capitalizeFirstLetter(name));
@@ -112,7 +110,6 @@ function onLogin(success) {
             openDataChannel()
         };
         writetochat("Connected.", "server");
-        console.log(peerConnection); 
       
         //When we get our own ICE Candidate, we provide it to the other Peer.
         peerConnection.onicecandidate = function (event) { 
