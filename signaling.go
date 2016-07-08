@@ -2,20 +2,14 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"github.com/gorilla/websocket"
+	"log"
 	"net/http"
 )
 
-//Hashmap of registered users, in ram
+//Hashmap of registered users and known connections - in ram
 var USERS map[string]User
-
-//Define upgrade policy.
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	CheckOrigin:     checkOrigin,
-}
+var CONNECTIONS map[*websocket.Conn]string
 
 // Template of a User
 type User struct {
@@ -24,16 +18,24 @@ type User struct {
 	Conn *websocket.Conn
 }
 
-// Template of input message readable by the server
-type MessageInput struct {
-	Type      string `json:"type,omitempty"`
-	Name      string `json:"name,omitempty"`
-	Offer     *Offer `json:"offer,omitempty"`
-	Answer    string `json:"answer,omitempty"`
-	Candidate string `json:"candidate,omitempty"`
+//Define upgrade policy.
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+	CheckOrigin:     checkOrigin,
 }
 
-// Define Login request sent back from the server
+// Template of input message readable by the server
+type SignalMessage struct {
+	Type      string     `json:"type,omitempty"`
+	Name      string     `json:"name,omitempty"`
+	Offer     *Offer     `json:"offer,omitempty"`
+	Answer    *Answer    `json:"answer,omitempty"`
+	Candidate *Candidate `json:"candidate,omitempty"`
+}
+
+// Define Login request sent back from the server.
+// External struct to manage Success bool independently
 type LoginResponse struct {
 	Type    string `json:"type"`
 	Success bool   `json:"success"`
@@ -44,6 +46,17 @@ type Offer struct {
 	Sdp  string `json:"sdp"`
 }
 
+type Answer struct {
+	Type string `json:"type"`
+	Sdp  string `json:"sdp"`
+}
+
+type Candidate struct {
+	Candidate     string `json:"candidate"`
+	SdpMid        string `json:"sdpMid"`
+	SdpMLineIndex int    `json:"sdpMLineIndex"`
+}
+
 //Ugrade policty from http request to websocket, to be defined
 func checkOrigin(r *http.Request) bool {
 	//For example: Check in a blacklist if the address is present
@@ -51,78 +64,135 @@ func checkOrigin(r *http.Request) bool {
 	return true
 }
 
-func onOffer(data MessageInput, messageType int, conn *websocket.Conn) error {
-	fmt.Println("Offer received")
-	var err error
-	var out []byte
+//Forward Offer to remote peer
+func onOffer(data SignalMessage, conn *websocket.Conn) (err error) {
+	log.Println("Offer received from", CONNECTIONS[conn])
+	var sm SignalMessage
+
+	sm.Offer = data.Offer
+	sm.Type = "offer"
 
 	if peer, isRegistered := USERS[data.Name]; isRegistered {
-		out, err = json.Marshal(data.Offer)
+		sm.Name = CONNECTIONS[conn]
+		out, err := json.Marshal(sm)
 		if err != nil {
-			fmt.Println("Error: ", err)
+			log.Println("Error - onOffer - Marshal:", err)
 			return err
 		}
-		if err = peer.Conn.WriteMessage(messageType, out); err != nil {
-			fmt.Println(err)
+		if err = peer.Conn.WriteMessage(1, out); err != nil {
+			log.Println("Error - onOffer - WriteMessage:", err)
 			return err
 		}
+		log.Println("Offer forwarded to", peer.Name)
 	} else {
-		fmt.Println("Can not send offer to an unregistered peer")
+		log.Println("Error - Can not send offer to an unregistered peer.")
 		return err
 	}
 	return nil
 }
 
-func onLogin(data MessageInput, messageType int, conn *websocket.Conn) error {
-	fmt.Println("User logged in")
-	var err error
+//Forward Answer to original peer
+func onAnswer(data SignalMessage, conn *websocket.Conn) (err error) {
+	log.Println("Answer received from", CONNECTIONS[conn])
+	var sm SignalMessage
+
+	sm.Answer = data.Answer
+	sm.Type = "answer"
+
+	if peer, isRegistered := USERS[data.Name]; isRegistered {
+		out, err := json.Marshal(sm)
+		if err != nil {
+			log.Println("Error - onAnswer - Marshal:", err)
+			return err
+		}
+		if err = peer.Conn.WriteMessage(1, out); err != nil {
+			log.Println("Error - onAnswer - WriteMessage:", err)
+			return err
+		}
+		log.Println("Answer forwarded to", peer.Name)
+	} else {
+		log.Println("Error - Can not send answer to an unregistered peer")
+		return err
+	}
+	return nil
+}
+
+//Forward candidate to original peer
+func onCandidate(data SignalMessage, conn *websocket.Conn) (err error) {
+	log.Println("Candidate received from", CONNECTIONS[conn])
+	var sm SignalMessage
+
+	sm.Candidate = data.Candidate
+	sm.Type = "candidate"
+
+	if peer, isRegistered := USERS[data.Name]; isRegistered {
+		out, err := json.Marshal(sm)
+		if err != nil {
+			log.Println("Error - onCandidate - Marshal:", err)
+			return err
+		}
+		if err = peer.Conn.WriteMessage(1, out); err != nil {
+			log.Println("Error - onCandidate - WriteMessage:", err)
+			return err
+		}
+		log.Println("Candidate forwarded to", peer.Name)
+	} else {
+		log.Println("Error - Can not send candidate to an unregistered peer")
+		return err
+	}
+	return nil
+}
+
+func onLogin(data SignalMessage, conn *websocket.Conn) (err error) {
 	var out []byte
 
 	if _, isRegistered := USERS[data.Name]; isRegistered {
 		out, err = json.Marshal(LoginResponse{Type: "login", Success: false})
+		log.Println("User", CONNECTIONS[conn], "tried but was not allowed to log in")
 	} else {
 		USERS[data.Name] = User{Name: data.Name, Conn: conn}
+		CONNECTIONS[conn] = data.Name
 		out, err = json.Marshal(LoginResponse{Type: "login", Success: true})
-	}
-	if err != nil {
-		fmt.Println(err)
-		return err
-	}
-	if err = conn.WriteMessage(messageType, out); err != nil {
-		fmt.Println(err)
-		return err
+		log.Println("User", CONNECTIONS[conn], "logged in successfully")
+		if err != nil {
+			log.Println("Error - onLogin - Marshal:", err)
+			return err
+		}
+		if err = conn.WriteMessage(1, out); err != nil {
+			log.Println("Error - onLogin - WriteMessage:", err)
+			return err
+		}
 	}
 	return nil
 }
 
 func connHandler(conn *websocket.Conn) {
-	messageType, p, err := conn.ReadMessage()
-	var message MessageInput
+	_, p, err := conn.ReadMessage()
+	var message SignalMessage
 
 	if err != nil {
-		fmt.Println(err)
+		log.Println(err)
 		return
 	}
-
 	err = json.Unmarshal(p, &message)
 
 	if err != nil {
-		fmt.Println(err)
+		log.Println("Error - connHandler:", err)
 		return
 	}
 	messageInputType := message.Type
 
 	switch messageInputType {
 	case "login":
-		onLogin(message, messageType, conn)
+		onLogin(message, conn)
 	case "offer":
-		onOffer(message, messageType, conn)
+		onOffer(message, conn)
 	case "answer":
-		fmt.Println("answer received")
+		onAnswer(message, conn)
 	case "candidate":
-		fmt.Println("candidate received")
+		onCandidate(message, conn)
 	case "leave":
-		fmt.Println("leave received")
+		log.Println("leave received")
 	default:
 		break
 	}
@@ -143,9 +213,11 @@ func reqHandler(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	USERS = make(map[string]User)
+	CONNECTIONS = make(map[*websocket.Conn]string)
 	http.HandleFunc("/", reqHandler)
+	log.Println("Signaling Server started")
 	err := http.ListenAndServe(":9090", nil)
 	if err != nil {
-		fmt.Println("Error: " + err.Error())
+		log.Println("Error: " + err.Error())
 	}
 }
