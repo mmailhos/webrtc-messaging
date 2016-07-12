@@ -61,6 +61,11 @@ type Leaving struct {
 	Type string `json:"type"`
 }
 
+type DefaultError struct {
+	Type    string `json:"type"`
+	Message string `json:"message"`
+}
+
 //Ugrade policty from http request to websocket, to be defined
 func checkOrigin(r *http.Request) bool {
 	//For example: Check in a blacklist if the address is present
@@ -197,6 +202,23 @@ func onLogin(data SignalMessage, conn *websocket.Conn) (err error) {
 	return nil
 }
 
+func onDefault(data SignalMessage, conn *websocket.Conn) (err error) {
+	var out []byte
+
+	log.Println("Unrecognized type command found:", data.Type)
+
+	out, err = json.Marshal(DefaultError{Type: "error", Message: "Unrecognized command"})
+	if err != nil {
+		log.Println("Error - onDefault - Marhshal:", err)
+		return err
+	}
+	if err = conn.WriteMessage(1, out); err != nil {
+		log.Println("Error - onDefault - WriteMessage:", err)
+		return err
+	}
+	return nil
+}
+
 func connHandler(conn *websocket.Conn) {
 	_, p, err := conn.ReadMessage()
 	var message SignalMessage
@@ -225,7 +247,7 @@ func connHandler(conn *websocket.Conn) {
 	case "leave":
 		onLeave(message, conn)
 	default:
-		break
+		onDefault(message, conn)
 	}
 }
 
