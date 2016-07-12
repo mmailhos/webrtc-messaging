@@ -57,6 +57,10 @@ type Candidate struct {
 	SdpMLineIndex int    `json:"sdpMLineIndex"`
 }
 
+type Leaving struct {
+	Type string `json:"type"`
+}
+
 //Ugrade policty from http request to websocket, to be defined
 func checkOrigin(r *http.Request) bool {
 	//For example: Check in a blacklist if the address is present
@@ -143,6 +147,33 @@ func onCandidate(data SignalMessage, conn *websocket.Conn) (err error) {
 	return nil
 }
 
+//Forward leave message to remote Peer and close the current connection
+func onLeave(data SignalMessage, conn *websocket.Conn) (err error) {
+	var out []byte
+	defer conn.Close()
+
+	log.Println("Leave message received from", CONNECTIONS[conn])
+
+	out, err = json.Marshal(Leaving{Type: "leaving"})
+	if err != nil {
+		log.Println("Error = onLeaving - Marshal:", err)
+		return err
+	}
+
+	user := CONNECTIONS[conn]
+	if peer, isRegistered := USERS[USERS[user].Peer]; isRegistered {
+		if err = peer.Conn.WriteMessage(1, out); err != nil {
+			log.Println("Error - onLeaving - WriteMessage:", err)
+			return err
+		}
+		log.Println("Leaving message sent to", peer.Name)
+	} else {
+		log.Println("Error - Can not send leaving message to remote peer.")
+		return err
+	}
+	return nil
+}
+
 func onLogin(data SignalMessage, conn *websocket.Conn) (err error) {
 	var out []byte
 
@@ -192,7 +223,7 @@ func connHandler(conn *websocket.Conn) {
 	case "candidate":
 		onCandidate(message, conn)
 	case "leave":
-		log.Println("leave received")
+		onLeave(message, conn)
 	default:
 		break
 	}
