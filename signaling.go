@@ -161,7 +161,7 @@ func onLeave(data SignalMessage, conn *websocket.Conn) (err error) {
 
 	out, err = json.Marshal(Leaving{Type: "leaving"})
 	if err != nil {
-		log.Println("Error = onLeaving - Marshal:", err)
+		log.Println("Error - onLeaving - Marshal:", err)
 		return err
 	}
 
@@ -208,7 +208,7 @@ func onDefault(raw []byte, conn *websocket.Conn) (err error) {
 
 	err = json.Unmarshal(raw, &message)
 	if err != nil {
-		log.Println("Error - connHandler - Unmarshal:", err)
+		log.Println("Error - onDefault - Unmarshal:", err)
 		return
 	}
 
@@ -241,7 +241,15 @@ func connHandler(conn *websocket.Conn) {
 	err = json.Unmarshal(raw, &message)
 
 	if err != nil {
-		log.Println("Error - connHandler - Unmarshal:", err)
+		log.Println("Error - connHandler - Unmarshal - Incorrect data format:", string(raw), ":", err)
+		out, err := json.Marshal(DefaultError{Type: "error", Message: "Incorrect data format"})
+		if err != nil {
+			log.Println("Error - connHandler - MarshalError:", err)
+			return
+		}
+		if err = conn.WriteMessage(1, out); err != nil {
+			log.Println("Error - connHandler- WriteMessage Response:", err)
+		}
 		return
 	}
 	messageInputType := message.Type
