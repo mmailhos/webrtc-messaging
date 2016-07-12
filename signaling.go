@@ -202,10 +202,21 @@ func onLogin(data SignalMessage, conn *websocket.Conn) (err error) {
 	return nil
 }
 
-func onDefault(data SignalMessage, conn *websocket.Conn) (err error) {
+func onDefault(raw []byte, conn *websocket.Conn) (err error) {
 	var out []byte
+	var message SignalMessage
 
-	log.Println("Unrecognized type command found:", data.Type)
+	err = json.Unmarshal(raw, &message)
+	if err != nil {
+		log.Println("Error - connHandler - Unmarshal:", err)
+		return
+	}
+
+	if message.Type != "" {
+		log.Println("Unrecognized type command found:", message.Type)
+	} else {
+		log.Println("Unrecognized type command found:", string(raw))
+	}
 
 	out, err = json.Marshal(DefaultError{Type: "error", Message: "Unrecognized command"})
 	if err != nil {
@@ -220,17 +231,17 @@ func onDefault(data SignalMessage, conn *websocket.Conn) (err error) {
 }
 
 func connHandler(conn *websocket.Conn) {
-	_, p, err := conn.ReadMessage()
+	_, raw, err := conn.ReadMessage()
 	var message SignalMessage
 
 	if err != nil {
-		log.Println(err)
+		log.Println("Error - connHandler - ReadMessage:", err)
 		return
 	}
-	err = json.Unmarshal(p, &message)
+	err = json.Unmarshal(raw, &message)
 
 	if err != nil {
-		log.Println("Error - connHandler:", err)
+		log.Println("Error - connHandler - Unmarshal:", err)
 		return
 	}
 	messageInputType := message.Type
@@ -247,7 +258,7 @@ func connHandler(conn *websocket.Conn) {
 	case "leave":
 		onLeave(message, conn)
 	default:
-		onDefault(message, conn)
+		onDefault(raw, conn)
 	}
 }
 
