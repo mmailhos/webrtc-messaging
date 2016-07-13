@@ -9,7 +9,11 @@ var sendMsgBtn = document.querySelector('#sendMsgBtn');
 
 var connectedUser, peerConnection, dataChannel;
 var name = "";
-   
+
+window.RTCPeerConnection = window.RTCPeerConnection || window.mozRTCPeerConnection || window.webkitRTCPeerConnection;
+window.RTCIceCandidate = window.RTCIceCandidate || window.mozRTCIceCandidate || window.webkitRTCIceCandidate;
+window.RTCSessionDescription = window.RTCSessionDescription || window.mozRTCSessionDescription || window.webkitRTCSessionDescription;
+
 //Messages received from the Signaling Server
 connection.onmessage = function (message) { 
     var data = JSON.parse(message.data); 
@@ -101,8 +105,8 @@ function onLogin(success) {
         var configuration = { 
             "iceServers": [{ "urls": "stun:stun.1.google.com:19302" }] 
 	}; 
-	
-        peerConnection = new webkitRTCPeerConnection(configuration);
+
+        peerConnection = new RTCPeerConnection(configuration);
 
         //Definition of the data channel
         peerConnection.ondatachannel = function(ev) {
