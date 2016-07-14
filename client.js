@@ -31,6 +31,8 @@ connection.onmessage = function (message) {
         case "candidate": 
             onCandidate(data.candidate); 
             break; 
+        case "leave":
+            onLeave();
         default: 
             break; 
     } 
@@ -129,6 +131,8 @@ function onLogin(success) {
               console.log("Changing connection state:", iceState)
               if (iceState == "connected") {
                 writetochat("Connection established with user " + capitalizeFirstLetter(connectedUser), "server");
+              } else if (iceState =="disconnected" || iceState == "closed") {
+                  onLeave();
               }
           };
     }
@@ -162,6 +166,17 @@ function onCandidate(candidate) {
     peerConnection.addIceCandidate(new RTCIceCandidate(candidate)); 
     console.log("ICE Candidate added.");
 }
+
+//Leave sent by the signaling server or remote peer
+function onLeave() {
+    try {
+        peerConnection.close();
+        console.log("Connection closed by " + connectedUser);
+        writetochat(capitalizeFirstLetter(connectedUser) + " closed the connection.", "server");
+    } catch(err) {
+        console.log("Connection already closed");
+    }
+}
     
 // Alias for sending to remote peer the message on JSON format
 function send(message) { 
@@ -185,6 +200,10 @@ function openDataChannel() {
 
     dataChannel.onopen = function() {
         console.log("Channel established.");
+    };
+
+    dataChannel.onclose = function() {
+        console.log("Channel closed.");
     };
 }
 
