@@ -217,7 +217,7 @@ func onLogin(data SignalMessage, conn *websocket.Conn) (err error) {
 
 	if _, isRegistered := USERS[data.Name]; isRegistered {
 		out, err = json.Marshal(LoginResponse{Type: "login", Success: false})
-		log.Println("User from", conn.RemoteAddr(), "tried but was not allowed to log in: ", USERS[data.Name], "is already registered.")
+		log.Println("User from", conn.RemoteAddr(), "tried to log in but was not allowed to: user", USERS[data.Name].Name, "is already registered.")
 	} else {
 		USERS[data.Name] = User{Name: data.Name, Conn: conn}
 		CONNECTIONS[conn] = data.Name
