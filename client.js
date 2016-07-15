@@ -33,6 +33,8 @@ connection.onmessage = function (message) {
             break; 
         case "leave":
             onLeave();
+        case "users":
+            onUsers(data.users);
         default: 
             break; 
     } 
@@ -176,6 +178,19 @@ function onLeave() {
     } catch(err) {
         console.log("Connection already closed");
     }
+}
+
+//Received list of users by the signaling server
+function onUsers(users) {
+    var div = document.getElementById('userbox');
+    data = '<font color="black">'
+    for (var i = 0; i < users.length; i++) {
+        if (users[i] != name && users[i] != "") {
+            data = data + capitalizeFirstLetter(users[i]) + '<br>';
+        }
+    }
+    data = data + '</font>';
+    div.innerHTML = data;
 }
     
 // Alias for sending to remote peer the message on JSON format

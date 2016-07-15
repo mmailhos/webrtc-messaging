@@ -42,6 +42,11 @@ type LoginResponse struct {
 	Success bool   `json:"success"`
 }
 
+type Users struct {
+	Type  string   `json:"type"`
+	Users []string `json:"users"`
+}
+
 type Offer struct {
 	Type string `json:"type"`
 	Sdp  string `json:"sdp"`
@@ -230,6 +235,20 @@ func onLogin(data SignalMessage, conn *websocket.Conn) (err error) {
 		if err = conn.WriteMessage(1, out); err != nil {
 			log.Println("Error - onLogin - WriteMessage:", err)
 			return err
+		}
+		// Notifies all the connections of the new list of users
+		// First generate an array of users then send it to each connected user
+		var users = make([]string, len(CONNECTIONS))
+		for e := range CONNECTIONS {
+			users = append(users, CONNECTIONS[e])
+		}
+		out, err = json.Marshal(Users{Type: "users", Users: users})
+		if err != nil {
+			log.Println("Error - onLogin - Marshal Users:", err)
+			return err
+		}
+		for conn := range CONNECTIONS {
+			conn.WriteMessage(1, out)
 		}
 	}
 	return nil
