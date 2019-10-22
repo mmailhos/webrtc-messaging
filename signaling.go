@@ -3,16 +3,19 @@ package main
 import (
 	"encoding/json"
 	"errors"
-	"github.com/gorilla/websocket"
 	"log"
 	"net/http"
+
+	"github.com/gorilla/websocket"
 )
 
-//Hashmap of registered users and known connections - in ram
+// USERS is a map of registered users and known connections
 var USERS map[string]User
+
+// CONNECTIONS is a map of websocket connections to author
 var CONNECTIONS map[*websocket.Conn]string
 
-// Template of a User
+// User template
 type User struct {
 	Name string
 	Peer string
@@ -26,7 +29,7 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin:     checkOrigin,
 }
 
-// Template of input message readable by the server
+// SignalMessage template to establish connection
 type SignalMessage struct {
 	Type      string     `json:"type,omitempty"`
 	Name      string     `json:"name,omitempty"`
@@ -35,38 +38,44 @@ type SignalMessage struct {
 	Candidate *Candidate `json:"candidate,omitempty"`
 }
 
-// Define Login request sent back from the server.
+// LoginResponse is a LoginRequest response from the server
 // External struct to manage Success bool independently
 type LoginResponse struct {
 	Type    string `json:"type"`
 	Success bool   `json:"success"`
 }
 
+//Users list
 type Users struct {
 	Type  string   `json:"type"`
 	Users []string `json:"users"`
 }
 
+// Offer struct
 type Offer struct {
 	Type string `json:"type"`
 	Sdp  string `json:"sdp"`
 }
 
+// Answer struct
 type Answer struct {
 	Type string `json:"type"`
 	Sdp  string `json:"sdp"`
 }
 
+// Candidate struct
 type Candidate struct {
 	Candidate     string `json:"candidate"`
 	SdpMid        string `json:"sdpMid"`
 	SdpMLineIndex int    `json:"sdpMLineIndex"`
 }
 
+// Leaving struct
 type Leaving struct {
 	Type string `json:"type"`
 }
 
+// DefaultError struct
 type DefaultError struct {
 	Type    string `json:"type"`
 	Message string `json:"message"`
