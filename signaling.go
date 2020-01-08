@@ -3,8 +3,10 @@ package main
 import (
 	"encoding/json"
 	"errors"
-	"log"
 	"net/http"
+	"os"
+
+	log "github.com/sirupsen/logrus"
 
 	"github.com/gorilla/websocket"
 )
@@ -81,170 +83,183 @@ type DefaultError struct {
 	Message string `json:"message"`
 }
 
-//Ugrade policty from http request to websocket, to be defined
+// Ugrade policty from http request to websocket
+// TODO: to be defined
 func checkOrigin(r *http.Request) bool {
 	//For example: Check in a blacklist if the address is present
 	//if blacklist_check(r.RemoteAddr) { return false }
 	return true
 }
 
-//Forward Offer to remote peer
-func onOffer(data SignalMessage, conn *websocket.Conn) (err error) {
-	log.Println("Offer received from", CONNECTIONS[conn])
+// onOffer forwards an offer to a remote peer
+func onOffer(data SignalMessage, conn *websocket.Conn) error {
 	var sm SignalMessage
 
 	sm.Offer = data.Offer
 	sm.Type = "offer"
 
+	log.Infof("Offer received from %v", CONNECTIONS[conn])
+
 	if peer, isRegistered := USERS[data.Name]; isRegistered {
 		sm.Name = CONNECTIONS[conn]
 		if _, isAuthorRegistered := USERS[sm.Name]; isAuthorRegistered {
-			//Currently, map members are not addressable. Work around here.
+			//map fields are not addressable
 			user := USERS[sm.Name]
 			user.Peer = data.Name
 			USERS[sm.Name] = user
-			log.Println("Set peer of user", USERS[sm.Name].Name, "to", data.Name)
+			log.Debugf("set peer of user %v to %v", USERS[sm.Name], data.Name)
 		} else {
-			return errors.New("Offer received by unregistered user")
+			return errors.New("offer received by unregistered user")
 		}
+
 		out, err := json.Marshal(sm)
 		if err != nil {
-			log.Println("Error - onOffer - Marshal:", err)
 			return err
 		}
-		if err = peer.Conn.WriteMessage(1, out); err != nil {
-			log.Println("Error - onOffer - WriteMessage:", err)
+
+		if err = peer.Conn.WriteMessage(websocket.TextMessage, out); err != nil {
 			return err
 		}
-		log.Println("Offer forwarded to", peer.Name)
+
+		log.Infof("Offer forwarded to %v", peer.Name)
+
 	} else {
-		log.Println("Error - Can not send offer to an unregistered peer.")
-		return err
+		return errors.New("unregistered peer")
 	}
+
 	return nil
 }
 
-//Forward Answer to original peer
+//onAnswer forwards Answer to original peer
 func onAnswer(data SignalMessage, conn *websocket.Conn) (err error) {
-	log.Println("Answer received from", CONNECTIONS[conn])
 	var sm SignalMessage
 
 	sm.Answer = data.Answer
 	sm.Type = "answer"
+
+	log.Infof("Answer received from %v", CONNECTIONS[conn])
 
 	if peer, isRegistered := USERS[data.Name]; isRegistered {
 		if author, isAuthorRegistered := USERS[CONNECTIONS[conn]]; isAuthorRegistered {
 			//Currently, map members are not addressable. Work around here.
 			author.Peer = peer.Name
 			USERS[CONNECTIONS[conn]] = author
-			log.Println("Set peer of user", USERS[CONNECTIONS[conn]].Name, "to", peer.Name)
+			log.Infof("set peer of user %v to %v", USERS[CONNECTIONS[conn]].Name, peer.Name)
 		} else {
-			return errors.New("Offer received by unregistered user")
+			return errors.New("unregistered user")
 		}
+
 		out, err := json.Marshal(sm)
 		if err != nil {
-			log.Println("Error - onAnswer - Marshal:", err)
 			return err
 		}
-		if err = peer.Conn.WriteMessage(1, out); err != nil {
-			log.Println("Error - onAnswer - WriteMessage:", err)
+
+		if err = peer.Conn.WriteMessage(websocket.TextMessage, out); err != nil {
 			return err
 		}
-		log.Println("Answer forwarded to", peer.Name)
+
+		log.Infof("onAnswer: answer forwarded to %v", peer.Name)
 	} else {
-		log.Println("Error - Can not send answer to an unregistered peer")
-		return err
+		return errors.New("unregistered peer")
 	}
+
 	return nil
 }
 
-//Forward candidate to original peer
-func onCandidate(data SignalMessage, conn *websocket.Conn) (err error) {
-	log.Println("Candidate received from", CONNECTIONS[conn])
+//onCandidate forwards candidate to original peer
+func onCandidate(data SignalMessage, conn *websocket.Conn) error {
 	var sm SignalMessage
 
 	sm.Candidate = data.Candidate
 	sm.Type = "candidate"
 
+	log.Infof("onCandidate received from %v", CONNECTIONS[conn])
+
 	if peer, isRegistered := USERS[data.Name]; isRegistered {
 		out, err := json.Marshal(sm)
 		if err != nil {
-			log.Println("Error - onCandidate - Marshal:", err)
 			return err
 		}
-		if err = peer.Conn.WriteMessage(1, out); err != nil {
-			log.Println("Error - onCandidate - WriteMessage:", err)
+		if err = peer.Conn.WriteMessage(websocket.TextMessage, out); err != nil {
 			return err
 		}
-		log.Println("Candidate forwarded to", peer.Name)
+
+		log.Infof("onCandidate: candidate forwarded to %v", peer.Name)
+
 	} else {
-		log.Println("Error - Can not send candidate to an unregistered peer")
-		return err
+		return errors.New("unregistered peer")
 	}
+
 	return nil
 }
 
-//Forward leave message to remote Peer and close the current connection
-func onLeave(data SignalMessage, conn *websocket.Conn) (err error) {
+//onLeave forwards leave message to remote Peer and closes the current connection
+func onLeave(data SignalMessage, conn *websocket.Conn) error {
 	var out []byte
 	defer conn.Close()
 
-	log.Println("Leave message received from", CONNECTIONS[conn])
+	log.Infof("onLeave: leave message received from %v", CONNECTIONS[conn])
 
-	out, err = json.Marshal(Leaving{Type: "leaving"})
+	out, err := json.Marshal(Leaving{Type: "leaving"})
 	if err != nil {
-		log.Println("Error - onLeaving - Marshal:", err)
 		return err
 	}
 
 	user := CONNECTIONS[conn]
 	if peer, isRegistered := USERS[USERS[user].Peer]; isRegistered {
-		if err = peer.Conn.WriteMessage(1, out); err != nil {
-			log.Println("Error - onLeaving - WriteMessage:", err)
+		if err = peer.Conn.WriteMessage(websocket.TextMessage, out); err != nil {
 			return err
 		}
-		log.Println("Leaving message sent to", peer.Name)
+		log.Infof("onLeave: leave message sent to %v", peer.Name)
 	}
+
 	return nil
 }
 
-//Force to terminate a connection (client closed the browser for example)
-func forceLeave(conn *websocket.Conn) (err error) {
+// forceLeave terminates a connection (client closed the browser for example)
+func forceLeave(conn *websocket.Conn) error {
 	var out []byte
 	defer conn.Close()
 
-	out, err = json.Marshal(Leaving{Type: "leaving"})
+	out, err := json.Marshal(Leaving{Type: "leaving"})
+	if err != nil {
+		return err
+	}
 
 	username := CONNECTIONS[conn]
 	if peer, isRegistered := USERS[USERS[username].Peer]; isRegistered {
-		if err := peer.Conn.WriteMessage(1, out); err != nil {
-			log.Println("Error - forceLeave - WriteMessage:", err)
+		if err := peer.Conn.WriteMessage(websocket.TextMessage, out); err != nil {
 			return err
 		}
-		log.Println("Leaving message sent to", peer.Name)
+		log.Infof("forceLeave: force leaving message sent to %v", peer.Name)
 	}
 	return nil
 }
 
-func onLogin(data SignalMessage, conn *websocket.Conn) (err error) {
-	var out []byte
-
+// onLogin
+func onLogin(data SignalMessage, conn *websocket.Conn) error {
 	if _, isRegistered := USERS[data.Name]; isRegistered {
-		out, err = json.Marshal(LoginResponse{Type: "login", Success: false})
-		log.Println("User from", conn.RemoteAddr(), "tried to log in but was not allowed to: user", USERS[data.Name].Name, "is already registered.")
+		_, err := json.Marshal(LoginResponse{Type: "login", Success: false})
+		if err != nil {
+			return err
+		}
+
+		log.Infof("user %v tried to log in but was denied, %v already registered", conn.RemoteAddr(),
+			USERS[data.Name].Name)
 	} else {
 		USERS[data.Name] = User{Name: data.Name, Conn: conn}
 		CONNECTIONS[conn] = data.Name
-		out, err = json.Marshal(LoginResponse{Type: "login", Success: true})
-		log.Println("User", CONNECTIONS[conn], "logged in successfully")
+		out, err := json.Marshal(LoginResponse{Type: "login", Success: true})
+
+		log.Infof("User %v logged in successfully", CONNECTIONS[conn])
 		if err != nil {
-			log.Println("Error - onLogin - Marshal:", err)
 			return err
 		}
-		if err = conn.WriteMessage(1, out); err != nil {
-			log.Println("Error - onLogin - WriteMessage:", err)
+
+		if err = conn.WriteMessage(websocket.TextMessage, out); err != nil {
 			return err
 		}
+
 		// Notifies all the connections of the new list of users
 		// First generate an array of users then send it to each connected user
 		var users = make([]string, len(CONNECTIONS))
@@ -253,73 +268,74 @@ func onLogin(data SignalMessage, conn *websocket.Conn) (err error) {
 		}
 		out, err = json.Marshal(Users{Type: "users", Users: users})
 		if err != nil {
-			log.Println("Error - onLogin - Marshal Users:", err)
 			return err
 		}
 		for conn := range CONNECTIONS {
-			conn.WriteMessage(1, out)
+			err := conn.WriteMessage(websocket.TextMessage, out)
+			if err != nil {
+				log.Error(err)
+			}
 		}
 	}
+
 	return nil
 }
 
-func onDefault(raw []byte, conn *websocket.Conn) (err error) {
+// onDefault
+func onDefault(raw []byte, conn *websocket.Conn) error {
 	var out []byte
 	var message SignalMessage
 
-	err = json.Unmarshal(raw, &message)
+	err := json.Unmarshal(raw, &message)
 	if err != nil {
-		log.Println("Error - onDefault - Unmarshal:", err)
-		return
+		return err
 	}
 
 	if message.Type != "" {
-		log.Println("Unrecognized type command found:", message.Type)
+		log.Errorf("onDefault: unrecognized type command found:", message.Type)
 	} else {
-		log.Println("Unrecognized type command found:", string(raw))
+		log.Errorf("onDefault: unrecognized type command found: %v", raw)
 	}
 
 	out, err = json.Marshal(DefaultError{Type: "error", Message: "Unrecognized command"})
 	if err != nil {
-		log.Println("Error - onDefault - Marhshal:", err)
 		return err
 	}
-	if err = conn.WriteMessage(1, out); err != nil {
-		log.Println("Error - onDefault - WriteMessage:", err)
+
+	if err = conn.WriteMessage(websocket.TextMessage, out); err != nil {
 		return err
 	}
+
 	return nil
 }
 
 func connHandler(conn *websocket.Conn) error {
 	var message SignalMessage
+
 	_, raw, err := conn.ReadMessage()
-
 	if err != nil {
+		log.Errorf("connHandler.ReadMessage: %v", err)
 		return err
 	}
 
-	if err != nil {
-		log.Println("Error - connHandler - ReadMessage:", err)
-		return err
-	}
-	err = json.Unmarshal(raw, &message)
+	if err := json.Unmarshal(raw, &message); err != nil {
+		log.Errorf("connHandler.Unmarshal: %v", err)
 
-	if err != nil {
-		log.Println("Error - connHandler - Unmarshal - Incorrect data format:", string(raw), ":", err)
 		out, err := json.Marshal(DefaultError{Type: "error", Message: "Incorrect data format"})
 		if err != nil {
-			log.Println("Error - connHandler - MarshalError:", err)
+			log.Errorf("connHandler.Marshal: %v", err)
 			return err
 		}
-		if err = conn.WriteMessage(1, out); err != nil {
-			log.Println("Error - connHandler- WriteMessage Response:", err)
+
+		if err = conn.WriteMessage(websocket.TextMessage, out); err != nil {
+			log.Errorf("connHandler.WriteMessage: %v", err)
+			return err
 		}
+
 		return err
 	}
-	messageInputType := message.Type
 
-	switch messageInputType {
+	switch message.Type {
 	case "login":
 		return onLogin(message, conn)
 	case "offer":
@@ -335,35 +351,45 @@ func connHandler(conn *websocket.Conn) error {
 	}
 }
 
-//Catches HTTP Requests, upgrade them if needed and let connHandler managing the connection
+//reqHandler catches HTTP Requests, upgrade them if needed and let connHandler managing the connection
 func reqHandler(w http.ResponseWriter, r *http.Request) {
-	//Upgrade a HTTP Request to get a pointer to a Conn
 	conn, err := upgrader.Upgrade(w, r, nil)
-
 	if err != nil {
+		log.Error(err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
-	log.Println(conn.RemoteAddr(), "reached the server")
+
+	log.Debugf("%v accesses the server", conn.RemoteAddr())
 	for {
-		if err := connHandler(conn); err != nil && err.Error() == "websocket: close 1001 (going away)" {
-			if user, isRegistered := CONNECTIONS[conn]; isRegistered {
-				log.Println("Connection closed for user", user)
-				forceLeave(conn)
-			} else {
-				log.Println("Connection closed for ", conn.RemoteAddr())
+		if err := connHandler(conn); err != nil {
+			if err.Error() == "websocket: close 1001 (going away)" {
+				if user, isRegistered := CONNECTIONS[conn]; isRegistered {
+					log.Debugf("connection closed for %v", user)
+					forceLeave(conn)
+				} else {
+					log.Debugf("connection closed for %v", conn.RemoteAddr())
+				}
+				return
 			}
-			return
+			log.Error(err)
 		}
 	}
+}
+
+func init() {
+	log.SetFormatter(&log.JSONFormatter{})
+	log.SetOutput(os.Stdout)
 }
 
 func main() {
 	USERS = make(map[string]User)
 	CONNECTIONS = make(map[*websocket.Conn]string)
 	http.HandleFunc("/", reqHandler)
-	log.Println("Signaling Server started")
+
+	log.Info("Signaling Server started")
+
 	err := http.ListenAndServe(":9090", nil)
 	if err != nil {
-		log.Println("Error: " + err.Error())
+		log.Panic(err)
 	}
 }
